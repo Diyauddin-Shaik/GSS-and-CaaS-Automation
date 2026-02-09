@@ -1,0 +1,122 @@
+[root@seroius00326 scripts]# cat download_month_files.sh
+#!/bin/bash
+set -euo pipefail
+
+#################################################
+# CONFIG
+#################################################
+
+ENDPOINT_URL="https://seroiss3obj.sero.gic.ericsson.se:10443"
+BUCKET_NAME="cda-customer-ing-res-dev"
+SOURCE_PREFIX="prepd/contract=ccd/"
+AWS_OPTS="--endpoint-url $ENDPOINT_URL --no-verify-ssl"
+
+BASE_DIR="/data/dt_pipeline"
+DOWNLOAD_DIR="$BASE_DIR/downloads"
+LOG_DIR="$BASE_DIR/logs"
+
+TIME_WINDOW_HOURS=1440
+
+
+LOG_FILE="$LOG_DIR/download_only_$(date +%F).log"
+
+#################################################
+# INIT
+#################################################
+
+mkdir -p "$DOWNLOAD_DIR" "$LOG_DIR"
+exec > >(tee -a "$LOG_FILE") 2>&1
+
+NOW_EPOCH=$(date +%s)
+FROM_EPOCH=$((NOW_EPOCH - TIME_WINDOW_HOURS*3600))
+
+echo "================================================="
+echo "DOWNLOAD STARTED : $(date)"
+echo "================================================="
+
+#################################################
+# PRE-CHECKS
+#################################################
+
+command -v aws >/dev/null || { echo "aws CLI missing"; exit 1; }
+command -v jq  >/dev/null || { echo "jq missing"; exit 1; }
+
+aws s3api list-buckets $AWS_OPTS >/dev/null || {
+  echo "Cannot connect to StorageGRID"
+  exit 1
+}
+
+#################################################
+# FETCH + FILTER
+#################################################
+
+FILES=$(aws s3api list-objects-v2 \
+  --bucket "$BUCKET_NAME" \
+  --prefix "$SOURCE_PREFIX" \
+  $AWS_OPTS \
+| jq -r --argjson FROM "$FROM_EPOCH" '
+  .Contents[]
+  | select(
+      (.LastModified
+        | sub("\\.[0-9]+Z$"; "Z")
+        | fromdateiso8601
+      ) >= $FROM
+    )
+  | "\(.Key)|\(.LastModified)"
+')
+
+[[ -z "$FILES" ]] && {
+  echo "No files modified in last $TIME_WINDOW_HOURS hours."
+  exit 0
+}
+
+#################################################
+# DOWNLOAD
+#################################################
+
+TOTAL=0
+
+while IFS='|' read -r OBJECT_KEY LAST_MODIFIED; do
+
+  FILE_NAME=$(basename "$OBJECT_KEY")
+
+  # ✅ Extract dt folder from S3 path
+  # Example: prepd/contract=ccd/dt=rd_bb_coverage/2025/December/file.xlsx
+  DT_FOLDER=$(echo "$OBJECT_KEY" | awk -F'/' '{for(i=1;i<=NF;i++) if($i ~ /^dt=/) {sub(/^dt=/,"",$i); print $i}}')
+
+  # Safety fallback
+  [[ -z "$DT_FOLDER" ]] && DT_FOLDER="dt=unknown"
+
+  # Month-Year from LastModified
+ # MONTH_YEAR=$(date -d "$LAST_MODIFIED" +"%b_%Y" | tr 'A-Z' 'a-z')
+
+  #TARGET_DIR="$DOWNLOAD_DIR/$DT_FOLDER/$MONTH_YEAR"
+  YEAR=$(date -d "$LAST_MODIFIED" +"%Y")
+  MONTH=$(date -d "$LAST_MODIFIED" +"%B")
+
+  TARGET_DIR="$DOWNLOAD_DIR/$DT_FOLDER/$YEAR/$MONTH"
+  mkdir -p "$TARGET_DIR"
+
+  echo "Downloading: $OBJECT_KEY"
+  aws s3 cp \
+    "s3://$BUCKET_NAME/$OBJECT_KEY" \
+    "$TARGET_DIR/$FILE_NAME" \
+    $AWS_OPTS
+
+  echo "Saved to $TARGET_DIR/$FILE_NAME"
+  TOTAL=$((TOTAL + 1))
+
+done <<< "$FILES"
+
+#################################################
+# SUMMARY
+#################################################
+
+echo "================================================="
+echo "TOTAL FILES DOWNLOADED : $TOTAL"
+echo "DOWNLOAD COMPLETED     : $(date)"
+echo "================================================="
+
+
+
+This will download the files in my style

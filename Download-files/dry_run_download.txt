@@ -1,0 +1,135 @@
+[root@seroius00326 scripts]# cat dry_run_download_check.sh
+#!/bin/bash
+set -euo pipefail
+
+############################################
+# CONFIGURATION
+############################################
+
+ENDPOINT_URL="https://seroiss3obj.sero.gic.ericsson.se:10443"
+#BUCKET_NAME="cda-customer-ing-res-dev"
+BUCKET_NAME="cda-customer-ing-res-prod"
+SOURCE_PREFIX="prepd/contract=ccd/"
+AWS_OPTS="--endpoint-url $ENDPOINT_URL --no-verify-ssl"
+
+# Local paths
+BASE_DIR="/data/dt_pipeline"
+DOWNLOAD_DIR="$BASE_DIR/downloads"
+LOG_DIR="/root/scripts/logs"
+LOG_FILE="$LOG_DIR/detect_download_$(date +%F).log"
+
+# Time window
+DAYS_BACK=60   # change to 30 if needed
+
+############################################
+# INIT
+############################################
+
+mkdir -p "$DOWNLOAD_DIR" "$LOG_DIR"
+exec > >(tee -a "$LOG_FILE") 2>&1
+
+NOW_EPOCH=$(date +%s)
+FROM_EPOCH=$((NOW_EPOCH - DAYS_BACK*86400))
+
+echo "=============================================="
+echo "DETECT + DOWNLOAD STARTED : $(date)"
+echo "Bucket        : $BUCKET_NAME"
+echo "Source Prefix : $SOURCE_PREFIX"
+echo "Time Window   : Last $DAYS_BACK days"
+echo "Download Path : $DOWNLOAD_DIR"
+echo "=============================================="
+
+############################################
+# PRE-CHECKS
+############################################
+
+command -v aws >/dev/null || { echo "❌ aws CLI missing"; exit 1; }
+command -v jq  >/dev/null || { echo "❌ jq missing"; exit 1; }
+
+aws s3api list-buckets $AWS_OPTS >/dev/null \
+  || { echo "❌ Cannot reach StorageGRID"; exit 1; }
+
+############################################
+# FETCH + FILTER OBJECTS
+############################################
+
+echo "Scanning for modified/created files..."
+
+FILES=$(aws s3api list-objects-v2 \
+  --bucket "$BUCKET_NAME" \
+  --prefix "$SOURCE_PREFIX" \
+  $AWS_OPTS \
+| jq -r --argjson FROM "$FROM_EPOCH" '
+  .Contents[]
+  | select(
+      (.LastModified
+        | sub("\\.[0-9]+Z$"; "Z")
+        | fromdateiso8601
+      ) >= $FROM
+    )
+  | "\(.Key)|\(.LastModified)"
+')
+
+if [[ -z "$FILES" ]]; then
+  echo "No files modified in last $DAYS_BACK days."
+  echo "Nothing to download. Exiting safely."
+  exit 0
+fi
+
+############################################
+# GROUP + DOWNLOAD
+############################################
+
+declare -A YEAR_MAP
+TOTAL=0
+
+while IFS='|' read -r OBJECT_KEY LAST_MODIFIED; do
+  FILE_NAME=$(basename "$OBJECT_KEY")
+
+  # Extract year from filename
+  YEAR=$(echo "$FILE_NAME" | grep -oE '20[0-9]{2}' | head -1)
+  [[ -z "$YEAR" ]] && YEAR="UNKNOWN"
+
+  YEAR_MAP["$YEAR"]+="$OBJECT_KEY"$'\n'
+done <<< "$FILES"
+
+echo
+echo "FILES DETECTED (Grouped by Year)"
+echo "----------------------------------------------"
+
+for year in "${!YEAR_MAP[@]}"; do
+  echo
+  echo "Year: $year"
+  echo "----------------------------------"
+  echo "${YEAR_MAP[$year]}"
+
+  TARGET_DIR="$DOWNLOAD_DIR/$year"
+  mkdir -p "$TARGET_DIR"
+
+  while read -r key; do
+    [[ -z "$key" ]] && continue
+
+    fname=$(basename "$key")
+    echo "Downloading: $key"
+    aws s3 cp \
+      "s3://$BUCKET_NAME/$key" \
+      "$TARGET_DIR/$fname" \
+      $AWS_OPTS
+
+    echo "✅ Saved to $TARGET_DIR/$fname"
+    TOTAL=$((TOTAL + 1))
+  done <<< "${YEAR_MAP[$year]}"
+done
+
+############################################
+# SUMMARY
+############################################
+
+echo
+echo "=============================================="
+echo "TOTAL FILES DOWNLOADED : $TOTAL"
+echo "DOWNLOAD COMPLETED     : $(date)"
+echo "=============================================="
+
+
+This is both actual and dry cehck code which download the files 

@@ -1,0 +1,88 @@
+#!/bin/bash
+
+############################################################
+# Script Name : move_dcgm_2023.sh
+# Purpose     : Move files having YEAR=2023 in filename
+#               from raw/contract=ccd to DCGM_to_be_deleted
+# Platform    : Ericsson StorageGRID (S3 compatible)
+############################################################
+
+# ---------------- CONFIG ----------------
+ENDPOINT_URL="https://seroiss3obj.sero.gic.ericsson.se:10443"
+BUCKET_NAME="dis-customer-ing-res-dev"
+SOURCE_PREFIX="raw/contract=ccd/"
+DEST_PREFIX="DCGM_to_be_deleted/"
+YEAR="2023"
+LOG_FILE="/root/scripts/move_dcgm_2023.log"
+
+# MODE: DRYRUN or MOVE
+MODE="MOVE"
+# Change to MODE="MOVE" only after validation
+# ---------------------------------------
+
+echo "==============================================" | tee -a "$LOG_FILE"
+echo "DCGM YEAR $YEAR FILE OPERATION STARTED" | tee -a "$LOG_FILE"
+echo "MODE          : $MODE" | tee -a "$LOG_FILE"
+echo "Bucket        : $BUCKET_NAME" | tee -a "$LOG_FILE"
+echo "Source Prefix : $SOURCE_PREFIX" | tee -a "$LOG_FILE"
+echo "Destination   : $DEST_PREFIX" | tee -a "$LOG_FILE"
+echo "==============================================" | tee -a "$LOG_FILE"
+
+# ---------- PRE-CHECK 1 : AWS CLI ----------
+if ! command -v aws >/dev/null 2>&1; then
+    echo "❌ AWS CLI not installed" | tee -a "$LOG_FILE"
+    exit 1
+fi
+
+# ---------- PRE-CHECK 2 : Connectivity ----------
+aws s3api list-buckets \
+  --endpoint-url "$ENDPOINT_URL" \
+  --no-verify-ssl >/dev/null 2>&1
+
+if [ $? -ne 0 ]; then
+    echo "❌ Cannot connect to StorageGRID endpoint" | tee -a "$LOG_FILE"
+    exit 1
+fi
+
+echo "✅ Connectivity OK" | tee -a "$LOG_FILE"
+
+# ---------- MAIN LOGIC ----------
+aws s3 ls s3://${BUCKET_NAME}/${SOURCE_PREFIX} \
+  --recursive \
+  --endpoint-url "$ENDPOINT_URL" \
+  --no-verify-ssl \
+| awk '{print $4}' \
+| while read -r object_key
+do
+    [ -z "$object_key" ] && continue
+
+    filename=$(basename "$object_key")
+
+    # YEAR MATCH ONLY
+    if [[ "$filename" == *"$YEAR"* ]]; then
+
+        if [ "$MODE" = "DRYRUN" ]; then
+            echo "DRY-RUN → WILL MOVE:" | tee -a "$LOG_FILE"
+            echo "  s3://${BUCKET_NAME}/${object_key}" | tee -a "$LOG_FILE"
+        else
+            echo "MOVING → $filename" | tee -a "$LOG_FILE"
+
+            aws s3 mv \
+              s3://${BUCKET_NAME}/${object_key} \
+              s3://${BUCKET_NAME}/${DEST_PREFIX}${filename} \
+              --endpoint-url "$ENDPOINT_URL" \
+              --no-verify-ssl
+
+            if [ $? -eq 0 ]; then
+                echo "✅ SUCCESS: $filename" | tee -a "$LOG_FILE"
+            else
+                echo "❌ FAILED : $filename" | tee -a "$LOG_FILE"
+            fi
+        fi
+    fi
+done
+
+echo "==============================================" | tee -a "$LOG_FILE"
+echo "DCGM FILE OPERATION COMPLETED" | tee -a "$LOG_FILE"
+echo "==============================================" | tee -a "$LOG_FILE"
+

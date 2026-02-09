@@ -1,1 +1,59 @@
-HI Diya
+#Dry RUN Check
+
+#!/bin/bash
+
+############################################################
+# Script Name : dry_run_move_dcgm_files.sh
+# Purpose     : DRY RUN – Show which 2023 files WOULD be moved
+# Storage     : Ericsson StorageGRID (S3-compatible)
+############################################################
+
+ENDPOINT_URL="https://seroiss3obj.sero.gic.ericsson.se:10443"
+BUCKET_NAME="dis-customer-ing-res-dev"
+SOURCE_PREFIX="raw/contract-ccd/"
+DEST_PREFIX="DCGM_to_be_deleted/"
+YEAR="2023"
+
+echo "=============================================="
+echo " DRY RUN : NO FILES WILL BE MOVED "
+echo "=============================================="
+echo "Bucket        : $BUCKET_NAME"
+echo "Source Prefix : $SOURCE_PREFIX"
+echo "Destination   : $DEST_PREFIX"
+echo "Year Filter   : $YEAR"
+echo "Endpoint URL  : $ENDPOINT_URL"
+echo "=============================================="
+
+# ---- Connectivity Check ----
+aws s3api list-buckets \
+  --endpoint-url "$ENDPOINT_URL" \
+  --no-verify-ssl >/dev/null 2>&1
+
+if [ $? -ne 0 ]; then
+  echo "❌ ERROR: Cannot connect to StorageGRID endpoint"
+  exit 1
+fi
+
+echo "✅ Endpoint connectivity OK"
+echo
+
+# ---- DRY RUN Listing ----
+aws s3 ls s3://${BUCKET_NAME}/${SOURCE_PREFIX} \
+  --recursive \
+  --endpoint-url "$ENDPOINT_URL" \
+  --no-verify-ssl \
+| awk '{print $4}' \
+| grep "$YEAR" \
+| while read -r object_key
+do
+    [ -z "$object_key" ] && continue
+
+    filename=$(basename "$object_key")
+
+    echo "WOULD MOVE:"
+    echo "  FROM: s3://${BUCKET_NAME}/${object_key}"
+    echo "  TO  : s3://${BUCKET_NAME}/${DEST_PREFIX}${filename}"
+    echo "----------------------------------------------"
+done
+
+echo "✅ DRY RUN COMPLETED – NO FILES MOVED"

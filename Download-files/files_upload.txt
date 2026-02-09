@@ -1,0 +1,37 @@
+[root@seroius00326 scripts]# cat files_upload.sh
+#!/bin/bash
+set -euo pipefail
+
+########################################
+# CONFIG
+########################################
+BASE_DIR="/data/dt_pipeline/downloads"
+
+export ARM_GENERIC_PORTAL_REPO="arm.seli.gic.ericsson.se/artifactory/proj-cd-analytics-reports-generic-local"
+export ARM_IDENTITY_TOKEN="<<<SET_TOKEN_HERE>>>"
+export ARTIFACTORY_BASE="https://${ARM_GENERIC_PORTAL_REPO}"
+
+########################################
+echo "Upload started from: $BASE_DIR"
+
+find "$BASE_DIR" -type f -name "*.xlsx" | while read -r FILE; do
+    RELATIVE_PATH="${FILE#$BASE_DIR/}"
+    DEST_URL="$ARTIFACTORY_BASE/$RELATIVE_PATH"
+
+    echo "Uploading: $FILE → $DEST_URL"
+
+    if curl -s -u ":$ARM_IDENTITY_TOKEN" -T "$FILE" "$DEST_URL"; then
+        echo "✅ Uploaded: $FILE"
+        rm -f "$FILE"
+    else
+        echo "❌ Upload failed: $FILE"
+        exit 1
+    fi
+done
+
+echo "Upload completed successfully"
+[root@seroius00326 scripts]#
+
+
+
+This was written by Inshaf

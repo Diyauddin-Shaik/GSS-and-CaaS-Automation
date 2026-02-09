@@ -1,0 +1,83 @@
+[root@seroius00326 scripts]# cat dry_run_detect_files__check.sh
+#!/bin/bash
+set -euo pipefail
+
+############################################
+# CONFIG
+############################################
+ENDPOINT_URL="https://seroiss3obj.sero.gic.ericsson.se:10443"
+BUCKET_NAME="cda-customer-ing-res-dev"
+SOURCE_PREFIX="prepd/contract=ccd/"
+AWS_OPTS="--endpoint-url $ENDPOINT_URL --no-verify-ssl"
+
+HOURS_BACK=24
+NOW_EPOCH=$(date +%s)
+#FROM_EPOCH=$((NOW_EPOCH - HOURS_BACK*3600))
+#FROM_EPOCH= $((NOW_EPOCH - 60*24*60*60))
+DAYS_BACK=60
+FROM_EPOCH=$((NOW_EPOCH - DAYS_BACK*86400))
+
+LOG_FILE="/root/scripts/logs/dryrun_download_$(date +%F).log"
+mkdir -p "$(dirname "$LOG_FILE")"
+
+echo "============================================" | tee -a "$LOG_FILE"
+echo "DRY-RUN FILE SCAN STARTED : $(date)" | tee -a "$LOG_FILE"
+echo "Bucket        : $BUCKET_NAME" | tee -a "$LOG_FILE"
+echo "Source Prefix : $SOURCE_PREFIX" | tee -a "$LOG_FILE"
+echo "Time Window   : Last $HOURS_BACK hours" | tee -a "$LOG_FILE"
+echo "============================================" | tee -a "$LOG_FILE"
+
+############################################
+# PRE-CHECKS
+############################################
+command -v aws >/dev/null || { echo "❌ AWS CLI missing"; exit 1; }
+command -v jq  >/dev/null || { echo "❌ jq missing"; exit 1; }
+
+aws s3api list-buckets $AWS_OPTS >/dev/null \
+  || { echo "❌ Cannot reach StorageGRID"; exit 1; }
+
+############################################
+# DRY RUN – FIND FILES
+############################################
+echo "Scanning for modified/created files..." | tee -a "$LOG_FILE"
+
+FILES=$(aws s3api list-objects-v2 \
+  --bucket "$BUCKET_NAME" \
+  --prefix "$SOURCE_PREFIX" \
+  $AWS_OPTS \
+| jq -r '.Contents[]? | "\(.Key)|\(.LastModified)"')
+
+MATCHED_FILES=()
+
+while IFS="|" read -r key last_modified; do
+    LAST_EPOCH=$(date -d "$last_modified" +%s)
+    if [ "$LAST_EPOCH" -ge "$FROM_EPOCH" ]; then
+        MATCHED_FILES+=("$key")
+    fi
+done <<< "$FILES"
+
+############################################
+# OUTPUT
+############################################
+COUNT=${#MATCHED_FILES[@]}
+
+echo "" | tee -a "$LOG_FILE"
+echo "Total files modified/created in last $HOURS_BACK hours: $COUNT" | tee -a "$LOG_FILE"
+echo "------------------------------------------------------------" | tee -a "$LOG_FILE"
+
+if [ "$COUNT" -eq 0 ]; then
+    echo "No files found. Exiting safely." | tee -a "$LOG_FILE"
+    exit 0
+fi
+
+for f in "${MATCHED_FILES[@]}"; do
+    echo "DRY-RUN → $f" | tee -a "$LOG_FILE"
+done
+
+echo "------------------------------------------------------------" | tee -a "$LOG_FILE"
+echo "DRY-RUN COMPLETED. NO FILES DOWNLOADED." | tee -a "$LOG_FILE"
+echo "============================================" | tee -a "$LOG_FILE"
+
+
+
+This dry run is actual code which detect the files and also used as dry check also 

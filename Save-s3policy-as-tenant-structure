@@ -1,0 +1,216 @@
+import requests
+import urllib3
+import json
+import os
+import sys
+
+urllib3.disable_warnings()
+
+# =========================
+# STORAGEGRID DETAILS
+# =========================
+
+#BASE_URL = "https://seroiss3adm.sero.gic.ericsson.se"
+#BASE_URL = "https://seroisgan1012.sero.gic.ericsson.se"
+#BASE_URL = "https://seliss3adm.seli.gic.ericsson.se"
+BASE_URL = "https://seliisgan1012.seli.gic.ericsson.se"
+USERNAME = "eshadiy"
+PASSWORD = "Diya@123Diya@123"
+
+
+# =========================
+# LOGIN
+# =========================
+
+def login(account_id):
+
+    url = BASE_URL + "/api/v4/authorize"
+
+    payload = {
+        "accountId": account_id,
+        "username": USERNAME,
+        "password": PASSWORD,
+        "cookie": True,
+        "csrfToken": False
+    }
+
+    res = requests.post(url, json=payload, verify=False)
+
+    if res.status_code != 200:
+        print("❌ Login Failed")
+        print(res.text)
+        sys.exit(1)
+
+    print("✅ Login Success")
+
+    return res.json()["data"]
+
+# =========================
+# GET ALL IDM GROUPS
+# =========================
+
+def get_all_groups(token):
+
+    url = BASE_URL + "/api/v4/org/groups"
+
+    headers = {
+        "Authorization": f"Bearer {token}"
+    }
+
+    res = requests.get(url, headers=headers, verify=False)
+
+    if res.status_code != 200:
+        print("❌ Failed to fetch groups")
+        print(res.text)
+        sys.exit(1)
+
+    return res.json().get("data", [])
+
+# =========================
+# GET GROUP S3 POLICY
+# =========================
+
+def get_group_policy(token, group_id):
+
+    url = f"{BASE_URL}/api/v4/org/groups/{group_id}"
+
+    headers = {
+        "Authorization": f"Bearer {token}"
+    }
+
+    res = requests.get(url, headers=headers, verify=False)
+
+    if res.status_code != 200:
+        print(f"X Failed to fetch policy for group: {group_id}")
+        print(res.text)
+        return {}
+
+    data = res.json().get("data", {})
+
+   # print("\n===== GROUP DATA =====\n")
+    #print(json.dumps(data, indent=4))
+
+    return data
+
+# =========================
+# CREATE BACKUP
+# =========================
+
+def backup_policies(token, account_name):
+
+    groups = get_all_groups(token)
+
+    if not groups:
+        print("❌ No groups found")
+        return
+
+    # Create Account Folder
+    os.makedirs(account_name, exist_ok=True)
+
+    for group in groups:
+
+        group_name = group.get("uniqueName", "unknown_group")
+        group_id = group.get("id")
+
+        print(f"\n📂 Processing Group: {group_name}")
+
+        # Safe Folder Name
+        safe_group_name = (
+            group_name
+            .replace("/", "_")
+            .replace("\\", "_")
+            .replace(" ", "_")
+        )
+
+        # Create Group Folder
+        group_folder = os.path.join(account_name, safe_group_name)
+
+        os.makedirs(group_folder, exist_ok=True)
+
+        # Fetch Policy
+        policy_data = get_group_policy(token, group_id)
+
+        #Print Policy
+       # print("\n S3 POLICY :\n")
+        #print(json.dumps(policy_data, indent=4))
+
+        # Backup File
+        backup_file = os.path.join(group_folder, "s3_policy.txt")
+
+        with open(backup_file, "w") as f:
+            f.write(json.dumps(policy_data, indent=4))
+
+        print(f"✅ Backup Saved: {backup_file}")
+
+# =========================
+# MAIN
+# =========================
+
+def main():
+
+    if len(sys.argv) != 3:
+        print("\nUsage:")
+        print("python backup.py <ACCOUNT_ID> <ACCOUNT_NAME>")
+        sys.exit(1)
+
+    account_id = sys.argv[1]
+    account_name = sys.argv[2]
+
+    token = login(account_id)
+
+    backup_policies(token, account_name)
+
+    print("\n🎉 S3 Policy Backup Completed")
+
+if __name__ == "__main__":
+    main()
+
+
+
+
+
+Output:
+
+[root@seroius08631 auto_test]# tree /tmp/auto_test/ESE_RESTRICTED_INGESTION_DEV
+/tmp/auto_test/ESE_RESTRICTED_INGESTION_DEV
+├── federated-group_gicserostoropssu
+│   └── s3_policy.txt
+├── federated-group_NPEE_DAF_GSS-ING-RES-DEV_Ericsson_access_ADMIN
+│   └── s3_policy.txt
+├── federated-group_NPEE_DAF_GSS-ING-RES-DEV_Ericsson_access_READ
+│   └── s3_policy.txt
+├── federated-group_rdi_products_internal-bcss_admin_nprd
+│   └── s3_policy.txt
+├── federated-group_rdi_products_internal-bcss_basic_nprd
+│   └── s3_policy.txt
+├── federated-group_rdi_products_internal-dc_admin_nprd
+│   └── s3_policy.txt
+├── federated-group_rdi_products_internal-dis_admin_nprd
+│   └── s3_policy.txt
+├── federated-group_rdi_products_internal-nosa_admin_nprd
+│   └── s3_policy.txt
+├── federated-group_rdi_products_internal-nosa_basic_nprd
+│   └── s3_policy.txt
+├── federated-group_rdi_products_internal-pafr_admin_nprd
+│   └── s3_policy.txt
+├── federated-group_rdi_products_internal-pafr_basic_nprd
+│   └── s3_policy.txt
+├── federated-group_rdi_products_internal-pqat_admin_nprd
+│   └── s3_policy.txt
+├── federated-group_rdi_products_internal-pqi_admin_nprd
+│   └── s3_policy.txt
+├── federated-group_rdi_user_internal-azure_testing_user_01
+│   └── s3_policy.txt
+├── federated-group_rdi_user_internal-azure_testing_user_02
+│   └── s3_policy.txt
+├── federated-group_rdi_user_internal-azure_testing_user_03
+│   └── s3_policy.txt
+├── federated-group_rdi_users_internal-prgrmd_basic_tmp
+│   └── s3_policy.txt
+├── federated-group_rdi_users_internal-proactive_consumer_basic_nprd
+│   └── s3_policy.txt
+└── federated-group_rdi_users_internal-proactive_restricted_consumer_basic_nprd
+    └── s3_policy.txt
+
+19 directories, 19 files
+[root@seroius08631 auto_test]#

@@ -1,0 +1,115 @@
+import requests
+import sys
+import urllib3
+import json
+
+urllib3.disable_warnings()
+
+#BASE_URL = "https://s......."
+USERNAME = "your_usrname"
+PASSWORD = "your_password"
+
+
+def login(account_id):
+    url = BASE_URL + "/api/v4/authorize"
+
+    payload = {
+        "accountId": account_id,
+        "username": USERNAME,
+        "password": PASSWORD,
+        "cookie": True,
+        "csrfToken": False
+    }
+
+    res = requests.post(url, json=payload, verify=False)
+
+    if res.status_code != 200:
+        print("❌ Login failed:", res.text)
+        sys.exit(1)
+
+    return res.json()["data"]
+
+
+def get_group_details(token, group_name):
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # Try federated group
+    url = f"{BASE_URL}/api/v4/org/groups/federated-group/{group_name}"
+    res = requests.get(url, headers=headers, verify=False)
+
+    if res.status_code == 200:
+        print("✅ Federated group found")
+        return res.json()["data"]
+
+    # Try local group
+    url = f"{BASE_URL}/api/v4/org/groups/group/{group_name}"
+    res = requests.get(url, headers=headers, verify=False)
+
+    if res.status_code == 200:
+        print("✅ Local group found")
+        return res.json()["data"]
+
+    print("❌ Group not found")
+    print(res.text)
+    sys.exit(1)
+
+def get_group_policy(token, group_id):
+    url = f"{BASE_URL}/api/v4/org/groups/{group_id}"
+    headers = {"Authorization": f"Bearer {token}"}
+
+    res = requests.get(url, headers=headers, verify=False)
+
+    print("\n📜 S3 GROUP POLICY:\n")
+
+    data = res.json().get("data", {})
+    policy = data.get("policies",{})
+    print(json.dumps(policy, indent=4))
+
+
+def get_group_users(token, group_name):
+    url = f"{BASE_URL}/api/v4/org/users?limit=1000"
+    headers = {"Authorization": f"Bearer {token}"}
+
+    res = requests.get(url, headers=headers, verify=False)
+
+    print("\n👥 USERS IN GROUP:\n")
+
+    users = res.json().get("data", [])
+
+    found = False
+
+    for user in users:
+        groups = user.get("memberOf") or []
+
+        # 🔥 match by group NAME (not ID)
+        if any(group_name in g for g in groups):
+            username = user.get("uniqueName", "").split("/")[-1]
+            print(username)
+            found = True
+
+    if not found:
+        print("No users found")
+
+
+def main():
+    if len(sys.argv) < 3:
+        print("Usage: python script.py <ACCOUNT_ID> <GROUP_NAME>")
+        sys.exit(1)
+
+    account_id = sys.argv[1]
+    group_name = sys.argv[2]
+
+    token = login(account_id)
+
+
+    group_data = get_group_details(token,group_name)
+    group_id = group_data["id"]
+
+    print(f"\n✅ Group ID: {group_id}")
+
+    get_group_policy(token, group_id)
+    get_group_users(token, group_id)
+
+
+if __name__ == "__main__":
+    main()

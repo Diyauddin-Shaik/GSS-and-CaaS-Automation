@@ -1,0 +1,89 @@
+[root@seroius01834 auto_test]# cat automation.py
+#-*- coding: utf-8 -*-
+import os
+
+# -------------------------------
+# STEP 1: Paste DOC data
+# -------------------------------
+
+start_ips = [
+       give ips
+]
+
+end_ips = [
+        give ips
+]
+
+cidr_ips = [
+        "10.0.126.80/28",
+       give ips
+]
+
+start_set = set([ip.strip() for ip in start_ips])
+end_set = set([ip.strip() for ip in end_ips])
+cidr_set = set([ip.strip() for ip in cidr_ips])
+
+
+# -------------------------------
+# STEP 2: Paste POLICY IPs
+# -------------------------------
+
+#policy_ips = [
+#    "10.117.126.80/28",
+#    "100.79.35.64/27",
+#    "10.63.205.64/28",
+#    "8.8.8.8",
+#    "10.117.126.80"
+#]
+
+policy_ips = []
+
+with open("policy_ips.txt", "r") as f:
+    for line in f:
+        #ip = line.strip().replace('"', '').replace(',', '')  # remove spaces + quote
+        ip = ''.join(line.split()).replace('"', '').replace(',', '')
+        if ip:  # skip empty lines
+            policy_ips.append(ip)
+
+# -------------------------------
+# STEP 3: Compare
+# -------------------------------
+
+ip_in_doc = []
+ip_not_in_doc = []
+
+for ip in policy_ips:
+
+    if "/" in ip:
+        if ip in cidr_set:
+            ip_in_doc.append(ip)
+        else:
+            ip_not_in_doc.append(ip)
+    else:
+        if ip in start_set or ip in end_set:
+            ip_in_doc.append(ip)
+        else:
+            ip_not_in_doc.append(ip)
+
+
+# -------------------------------
+# STEP 4: Save output
+# -------------------------------
+
+if not os.path.exists("output"):
+    os.makedirs("output")
+
+with open("output/ip_in_doc.txt", "w") as f:
+    f.write("\n".join(ip_in_doc) + "\n")
+
+with open("output/ip_not_in_doc.txt", "w") as f:
+    f.write("\n".join(ip_not_in_doc) + "\n")
+
+
+print "Done. Check output folder."
+print "\n===== SUMMARY ====="
+print "Total IPs      :", len(policy_ips)
+print "Matched (IN)   :", len(ip_in_doc)
+print "Not Matched    :", len(ip_not_in_doc)
+print "==================\n"
+[root@seroius01834 auto_test]#
